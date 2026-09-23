@@ -31,6 +31,7 @@ class OverlayService : Service() {
   private lateinit var usageStatsManager: UsageStatsManager
   private lateinit var prefs: SharedPreferences
   private lateinit var uploadServer: MessagesUploadServer
+  private val nsdRegistrar = NsdRegistrar(this)
   private val handler = Handler(Looper.getMainLooper())
 
   private var isDreamActive = false
@@ -86,6 +87,7 @@ class OverlayService : Service() {
     uploadServer = MessagesUploadServer(this)
     try {
       uploadServer.start()
+      nsdRegistrar.register(MessagesUploadServer.DEFAULT_PORT)
     } catch (e: IOException) {
       // Port already taken (e.g. a previous instance still shutting down); the overlay
       // still works fine without the upload server, just not reachable from the phone.
@@ -190,6 +192,7 @@ class OverlayService : Service() {
     unregisterReceiver(dreamReceiver)
     overlayView?.let { windowManager.removeView(it) }
     if (::uploadServer.isInitialized) uploadServer.stop()
+    nsdRegistrar.unregister()
   }
 
   private fun buildNotification(): android.app.Notification {

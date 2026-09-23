@@ -17,9 +17,19 @@ class MessagesUploadServer(private val context: Context, port: Int = DEFAULT_POR
     NanoHTTPD(port) {
 
   override fun serve(session: IHTTPSession): Response {
-    if (session.method != Method.PUT || session.uri != UPLOAD_PATH) {
+    if (session.uri != UPLOAD_PATH) {
       return newFixedLengthResponse(
-          Response.Status.NOT_FOUND, MIME_PLAINTEXT, "PUT a text file to $UPLOAD_PATH")
+          Response.Status.NOT_FOUND, MIME_PLAINTEXT, "GET or PUT $UPLOAD_PATH")
+    }
+
+    if (session.method == Method.GET) {
+      val text = Vocabulary.loadLines(context).joinToString("\n")
+      return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, text)
+    }
+
+    if (session.method != Method.PUT) {
+      return newFixedLengthResponse(
+          Response.Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "GET or PUT $UPLOAD_PATH")
     }
 
     val contentLength = session.headers["content-length"]?.toIntOrNull() ?: -1
