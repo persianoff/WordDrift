@@ -27,7 +27,7 @@ Both buttons disappear once granted, and the app updates the vocabulary list and
 
 Download `WordDriftCompanion-vX.Y.apk` (latest version) from [Releases](../../releases) and sideload it onto an Android phone on the **same WiFi network** as the TV.
 
-Open it: it finds the TV automatically (via NSD/mDNS, service type `_worddrift._tcp`, no IP to type in), fetches the current dictionary, and lets you edit it directly. Tap **"Save to TV"** to push your changes back — the TV picks them up on its next overlay rotation, no restart needed.
+Open it: it finds the TV automatically (via NSD/mDNS, service type `_worddrift._tcp`, no IP to type in), fetches the current dictionary, and lets you edit it directly. Type a word in the **"New word"** box to search the list and highlight a matching line (useful for checking if something similar already exists), or tap **Add** to append it as a new line. Tap **"Save to TV"** to push your changes back — the TV picks them up on its next overlay rotation, no restart needed.
 
 Requires the TV app to already be installed and running (its embedded server on port 8765 is what the phone talks to).
 
