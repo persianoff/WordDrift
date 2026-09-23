@@ -49,6 +49,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import com.claudetest.hello.AppPrefs
+import com.claudetest.hello.MessagesUploadServer
+import com.claudetest.hello.NetworkUtils
 import com.claudetest.hello.OverlayService
 import com.claudetest.hello.data.DefaultDataRepository
 import com.claudetest.hello.theme.HelloOverlayTheme
@@ -232,6 +234,13 @@ internal fun MainScreen(
             onClick = { onLaunchSystemSettings(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }) {
           Text("Enable usage access")
         }
+      }
+
+      val localIp = remember { NetworkUtils.localIpAddress() }
+      if (localIp != null) {
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Upload vocabulary from phone: PUT to http://$localIp:${MessagesUploadServer.DEFAULT_PORT}${MessagesUploadServer.UPLOAD_PATH}")
       }
     }
 

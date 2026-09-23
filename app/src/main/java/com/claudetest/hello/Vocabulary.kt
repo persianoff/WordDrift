@@ -18,9 +18,12 @@ object Vocabulary {
   private var cachedExternalMtime: Long = -1
   private var cachedFromBundled = false
 
+  /** The external file this app reads from and the upload server writes to — single source. */
+  fun externalFile(context: Context): File = File(context.getExternalFilesDir(null), FILE_NAME)
+
   @Synchronized
   fun loadLines(context: Context): List<String> {
-    val externalFile = File(context.getExternalFilesDir(null), FILE_NAME)
+    val externalFile = externalFile(context)
     val externalMtime = if (externalFile.isFile) externalFile.lastModified() else -1L
 
     if (externalMtime >= 0) {

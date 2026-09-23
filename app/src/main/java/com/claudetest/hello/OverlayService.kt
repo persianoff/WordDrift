@@ -23,12 +23,14 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import java.io.IOException
 
 class OverlayService : Service() {
   private lateinit var windowManager: WindowManager
   private var overlayView: TextView? = null
   private lateinit var usageStatsManager: UsageStatsManager
   private lateinit var prefs: SharedPreferences
+  private lateinit var uploadServer: MessagesUploadServer
   private val handler = Handler(Looper.getMainLooper())
 
   private var isDreamActive = false
@@ -80,6 +82,14 @@ class OverlayService : Service() {
         })
 
     handler.post(youtubePollTask)
+
+    uploadServer = MessagesUploadServer(this)
+    try {
+      uploadServer.start()
+    } catch (e: IOException) {
+      // Port already taken (e.g. a previous instance still shutting down); the overlay
+      // still works fine without the upload server, just not reachable from the phone.
+    }
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -179,6 +189,7 @@ class OverlayService : Service() {
     handler.removeCallbacks(youtubePollTask)
     unregisterReceiver(dreamReceiver)
     overlayView?.let { windowManager.removeView(it) }
+    if (::uploadServer.isInitialized) uploadServer.stop()
   }
 
   private fun buildNotification(): android.app.Notification {
