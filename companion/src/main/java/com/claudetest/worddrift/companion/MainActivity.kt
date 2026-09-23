@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,8 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -21,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,10 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -171,7 +182,20 @@ private fun EditingView(
     onAdd: () -> Unit,
     onSave: () -> Unit,
 ) {
-  Column(Modifier.fillMaxSize().padding(16.dp)) {
+  val scrollState = rememberScrollState()
+  var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+  // A search match sets a real (non-collapsed) selection; scroll it to the top of the
+  // visible area so it isn't left sitting just barely above the on-screen keyboard.
+  LaunchedEffect(state.text.selection) {
+    val layout = textLayout
+    val selection = state.text.selection
+    if (layout != null && !selection.collapsed) {
+      scrollToLineTop(scrollState, layout, selection.start)
+    }
+  }
+
+  Column(Modifier.fillMaxSize().padding(16.dp).imePadding()) {
     Text(
         "Connected to WordDrift TV at ${state.host}",
         style = MaterialTheme.typography.labelMedium)
@@ -189,11 +213,24 @@ private fun EditingView(
     }
     Spacer(Modifier.height(8.dp))
 
-    OutlinedTextField(
-        value = state.text,
-        onValueChange = onTextChange,
-        modifier = Modifier.weight(1f).fillMaxWidth(),
-        textStyle = MaterialTheme.typography.bodySmall)
+    // BasicTextField (not the Material3 OutlinedTextField, which doesn't expose onTextLayout
+    // on this value/onValueChange overload) so real line offsets are available for scrolling.
+    // Left unconstrained in height (no weight/scroll of its own) so the surrounding Column's
+    // scroll is the only scroll in play -- combining a bounded/internally-scrolling text field
+    // with an external verticalScroll causes double-scroll bugs.
+    Column(Modifier.weight(1f).verticalScroll(scrollState)) {
+      BasicTextField(
+          value = state.text,
+          onValueChange = onTextChange,
+          onTextLayout = { layoutResult -> textLayout = layoutResult },
+          textStyle =
+              MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+          modifier =
+              Modifier.fillMaxWidth()
+                  .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                  .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                  .padding(16.dp))
+    }
     Spacer(Modifier.height(8.dp))
     state.status?.let {
       Text(it)
@@ -203,4 +240,14 @@ private fun EditingView(
       Text(if (state.saving) "Saving…" else "Save to TV")
     }
   }
+}
+
+private suspend fun scrollToLineTop(
+    scrollState: ScrollState,
+    layout: TextLayoutResult,
+    charOffset: Int,
+) {
+  val lineIndex = layout.getLineForOffset(charOffset)
+  val top = layout.getLineTop(lineIndex).roundToInt()
+  scrollState.animateScrollTo(top.coerceIn(0, scrollState.maxValue))
 }
