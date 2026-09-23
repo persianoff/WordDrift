@@ -24,7 +24,7 @@ flowchart TB
     subgraph UI["Home-screen UI (Compose)"]
         NAV["MainNavigation\n(Navigation3 NavDisplay)"]
         MS["MainScreen\n(slider + switch + permission buttons\n+ upload URL + dictionary list)"]
-        VM["MainScreenViewModel\n(StateFlow<UiState>)"]
+        VM["MainScreenViewModel\n(StateFlow of UiState)"]
         REPO["DefaultDataRepository"]
     end
 
@@ -230,28 +230,28 @@ sequenceDiagram
     participant Dev as adb push / phone app
     participant HTTP as MessagesUploadServer
     participant FS as messages.txt
-    participant Vocab as Vocabulary (cache)
+    participant Vocab as Vocabulary loader
     participant Repo as DefaultDataRepository
     participant VM as MainScreenViewModel
-    participant UI as MainScreen (list)
+    participant UI as MainScreen list
     participant Ovl as OverlayService
 
     alt via adb push
         Dev->>FS: overwrite file directly
     else via companion app
         Dev->>HTTP: PUT /messages.txt
-        HTTP->>FS: validate + write
+        HTTP->>FS: validate and write
     end
     Note over FS: No app restart needed either way
 
-    UI->>Repo: collectAsStateWithLifecycle()
-    Repo->>Vocab: loadLines(context)
-    Ovl->>Vocab: loadLines(context) (every rotate tick)
-    Vocab->>FS: stat mtime; re-read only if changed
-    Vocab-->>Repo: List<String> (cached or freshly parsed)
-    Repo-->>VM: Flow<List<String>>
-    VM-->>UI: StateFlow<Success(data)>
-    Ovl-->>Ovl: lines.random()
+    UI->>Repo: collectAsStateWithLifecycle
+    Repo->>Vocab: loadLines
+    Ovl->>Vocab: loadLines, every rotate tick
+    Vocab->>FS: stat mtime, re-read only if changed
+    Vocab-->>Repo: cached or freshly parsed lines
+    Repo-->>VM: list of lines
+    VM-->>UI: success state with data
+    Ovl-->>Ovl: pick a random line
 ```
 
 ## 4. Platform constraints that shaped this design
