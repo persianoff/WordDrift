@@ -6,11 +6,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -47,10 +51,25 @@ private sealed interface UiState {
   data class Editing(
       val host: String,
       val port: Int,
-      val text: String,
+      val text: TextFieldValue,
+      val newWord: String = "",
       val status: String? = null,
       val saving: Boolean = false,
   ) : UiState
+}
+
+/** Finds the first line containing [query] (case-insensitive) and returns its full text range. */
+private fun findLineRange(text: String, query: String): TextRange? {
+  if (query.isBlank()) return null
+  var lineStart = 0
+  for (line in text.split("\n")) {
+    val lineEnd = lineStart + line.length
+    if (line.contains(query, ignoreCase = true)) {
+      return TextRange(lineStart, lineEnd)
+    }
+    lineStart = lineEnd + 1 // account for the newline separator
+  }
+  return null
 }
 
 @Composable
@@ -68,7 +87,7 @@ private fun CompanionScreen() {
             val result = TvApiClient.fetchMessages(host, port)
             uiState =
                 result.fold(
-                    onSuccess = { text -> UiState.Editing(host, port, text) },
+                    onSuccess = { text -> UiState.Editing(host, port, TextFieldValue(text)) },
                     onFailure = { e ->
                       UiState.Error("Found the TV but couldn't load its vocabulary: ${e.message}")
                     })
@@ -88,11 +107,29 @@ private fun CompanionScreen() {
     is UiState.Editing ->
         EditingView(
             state = state,
-            onTextChange = { newText -> uiState = state.copy(text = newText) },
+            onTextChange = { newValue -> uiState = state.copy(text = newValue) },
+            onNewWordChange = { query ->
+              val match = findLineRange(state.text.text, query)
+              uiState =
+                  state.copy(
+                      newWord = query,
+                      text = if (match != null) state.text.copy(selection = match) else state.text)
+            },
+            onAdd = {
+              val word = state.newWord.trim()
+              if (word.isNotEmpty()) {
+                val newFullText =
+                    if (state.text.text.isEmpty()) word else state.text.text + "\n" + word
+                uiState =
+                    state.copy(
+                        text = TextFieldValue(newFullText, selection = TextRange(newFullText.length)),
+                        newWord = "")
+              }
+            },
             onSave = {
               uiState = state.copy(saving = true, status = null)
               scope.launch {
-                val result = TvApiClient.saveMessages(state.host, state.port, state.text)
+                val result = TvApiClient.saveMessages(state.host, state.port, state.text.text)
                 uiState =
                     result.fold(
                         onSuccess = { msg -> state.copy(saving = false, status = "Saved: $msg") },
@@ -129,7 +166,9 @@ private fun ErrorView(message: String, onRetry: () -> Unit) {
 @Composable
 private fun EditingView(
     state: UiState.Editing,
-    onTextChange: (String) -> Unit,
+    onTextChange: (TextFieldValue) -> Unit,
+    onNewWordChange: (String) -> Unit,
+    onAdd: () -> Unit,
     onSave: () -> Unit,
 ) {
   Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -137,6 +176,19 @@ private fun EditingView(
         "Connected to WordDrift TV at ${state.host}",
         style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(8.dp))
+
+    Row {
+      OutlinedTextField(
+          value = state.newWord,
+          onValueChange = onNewWordChange,
+          singleLine = true,
+          label = { Text("New word") },
+          modifier = Modifier.weight(1f))
+      Spacer(Modifier.width(8.dp))
+      Button(onClick = onAdd, enabled = state.newWord.isNotBlank()) { Text("Add") }
+    }
+    Spacer(Modifier.height(8.dp))
+
     OutlinedTextField(
         value = state.text,
         onValueChange = onTextChange,
