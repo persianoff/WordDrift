@@ -31,3 +31,4 @@ plugins {
 
 rootProject.name = "HelloOverlay"
 include(":app")
+include(":companion")
