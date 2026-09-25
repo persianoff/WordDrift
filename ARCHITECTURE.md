@@ -105,6 +105,29 @@ see §4) that owns exactly one `TextView` added directly via `WindowManager.addV
 with `TYPE_APPLICATION_OVERLAY`. This is *not* a normal Activity window — it floats above
 whatever else is on screen, full width, anchored near the top (`gravity = TOP`, `y = 24`).
 
+#### Window layer (what it draws over, and what draws over it)
+`TYPE_APPLICATION_OVERLAY` (framework window type `2038` — visible in the
+`BadTokenException` log line when `SYSTEM_ALERT_WINDOW` is missing:
+`"...permission denied for window type 2038"`) is a distinct concept from the window's
+*layer* (its actual z-order/compositing value). The layer numbers below are read directly
+off this device via `adb shell dumpsys window windows`, not from documentation:
+
+| Window | `mBaseLayer` |
+|---|---|
+| `ImageWallpaper` | 11000 |
+| App windows — YouTube, the launcher, and (confirmed separately, by screenshot) the screensaver's own dream content | 21000 |
+| **WordDrift's overlay (`TYPE_APPLICATION_OVERLAY`)** | **121000** |
+| Soft keyboard (`InputMethod`) | 151000 |
+
+So the overlay draws above *any* app's content and the wallpaper — not just YouTube and
+the screensaver, though those are the only two states that ever turn it on — but below
+the on-screen keyboard and (by the same reasoning, though not separately measured) other
+high-priority system surfaces like dialogs and the status bar. In practice this has never
+mattered: the overlay only shows during the screensaver or YouTube, neither of which
+brings up a keyboard or system dialog over itself. `FLAG_NOT_FOCUSABLE` and
+`FLAG_NOT_TOUCHABLE` mean it never intercepts D-pad input or touches either way — purely
+a visual layer, not an interactive one.
+
 Creating that window requires `SYSTEM_ALERT_WINDOW`, which is commonly missing (fresh
 install, or the user hasn't granted it yet). `ensureOverlayViewCreated()` guards every
 attempt to build the view with `Settings.canDrawOverlays()` — without this the service
