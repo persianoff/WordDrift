@@ -3,6 +3,7 @@ package com.claudetest.hello
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -37,6 +38,10 @@ class OverlayService : Service() {
   private var isDreamActive = false
   private var isYoutubeActive = false
 
+  // Tracks how far the event log has been read (see updateYoutubeActiveFromEvents()),
+  // set once at service start-up and advanced on every poll after that.
+  private var lastEventPollTime = System.currentTimeMillis()
+
   private val rotateTask =
       object : Runnable {
         override fun run() {
@@ -48,7 +53,7 @@ class OverlayService : Service() {
   private val youtubePollTask =
       object : Runnable {
         override fun run() {
-          isYoutubeActive = checkYoutubeActive()
+          updateYoutubeActiveFromEvents()
           updateVisibility()
           handler.postDelayed(this, YOUTUBE_POLL_INTERVAL_MS)
         }
@@ -72,6 +77,12 @@ class OverlayService : Service() {
     windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
     usageStatsManager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
     prefs = getSharedPreferences(AppPrefs.PREFS_NAME, MODE_PRIVATE)
+
+    // Seed initial state from a point-in-time snapshot in case YouTube was already
+    // foreground when this service started (e.g. after a reboot) -- the event log used
+    // from here on only sees transitions that happen *after* lastEventPollTime, so
+    // without this the overlay would stay hidden until the next actual switch.
+    isYoutubeActive = snapshotYoutubeActive()
 
     ensureOverlayViewCreated()
 
@@ -148,7 +159,17 @@ class OverlayService : Service() {
     updateVisibility()
   }
 
-  private fun checkYoutubeActive(): Boolean {
+  /**
+   * One-shot snapshot used only to seed [isYoutubeActive] at service start-up (see
+   * [onCreate]). Compares YouTube's `lastTimeUsed` against the max across all packages in
+   * a short recent window -- this was previously used as the *ongoing* detection
+   * mechanism, but `lastTimeUsed` only updates on a foreground transition, not
+   * continuously, so during a long uninterrupted YouTube session it goes stale and any
+   * other package with a fresher blip flips this false even though YouTube never left.
+   * [updateYoutubeActiveFromEvents] replaces it for everything after start-up, since it
+   * doesn't depend on anything staying "freshest" over time.
+   */
+  private fun snapshotYoutubeActive(): Boolean {
     val end = System.currentTimeMillis()
     val stats =
         usageStatsManager.queryUsageStats(
@@ -157,6 +178,30 @@ class OverlayService : Service() {
     val youtubeLastUsed = stats.firstOrNull { it.packageName == YOUTUBE_PACKAGE }?.lastTimeUsed ?: 0L
     val maxLastUsed = stats.maxOf { it.lastTimeUsed }
     return youtubeLastUsed > 0L && youtubeLastUsed >= maxLastUsed
+  }
+
+  /**
+   * Reads usage events since the last poll and updates [isYoutubeActive] on an explicit
+   * MOVE_TO_FOREGROUND / MOVE_TO_BACKGROUND for YouTube specifically -- confirmed on-device
+   * (including after a real 5-minute continuous session) to fire promptly and reliably,
+   * unlike `lastTimeUsed`. Any other event, or no YouTube event at all this poll, leaves
+   * the current value unchanged (a latch, not a snapshot).
+   */
+  @Suppress("DEPRECATION") // MOVE_TO_FOREGROUND/BACKGROUND are the minSdk-26-safe names;
+  // ACTIVITY_RESUMED/PAUSED (API 29+) are the same values under a newer name.
+  private fun updateYoutubeActiveFromEvents() {
+    val now = System.currentTimeMillis()
+    val events = usageStatsManager.queryEvents(lastEventPollTime, now)
+    val event = UsageEvents.Event()
+    while (events.hasNextEvent()) {
+      events.getNextEvent(event)
+      if (event.packageName != YOUTUBE_PACKAGE) continue
+      when (event.eventType) {
+        UsageEvents.Event.MOVE_TO_FOREGROUND -> isYoutubeActive = true
+        UsageEvents.Event.MOVE_TO_BACKGROUND -> isYoutubeActive = false
+      }
+    }
+    lastEventPollTime = now
   }
 
   private fun currentRotateIntervalMs(): Long {

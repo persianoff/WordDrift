@@ -134,10 +134,16 @@ stateDiagram-v2
   broadcasts `android.intent.action.DREAMING_STARTED` / `DREAMING_STOPPED`, sent by
   `DreamManagerService` whenever *any* Daydream/screensaver starts or stops. No
   permission required; this is the single most reliable signal in the app (see §4).
-- **`isYoutubeActive`** — polled every 3s via `UsageStatsManager.queryUsageStats()`.
-  YouTube (`com.google.android.youtube.tv`) is considered "active" when its
-  `lastTimeUsed` is the **most recent of all packages** returned in a 60-second window —
-  not merely "recent in absolute time" (see §4 for why).
+- **`isYoutubeActive`** — a latch, updated every 3s by `updateYoutubeActiveFromEvents()`
+  reading `UsageStatsManager.queryEvents()` since the last poll: an explicit
+  `MOVE_TO_FOREGROUND` for `com.google.android.youtube.tv` sets it true, an explicit
+  `MOVE_TO_BACKGROUND` sets it false, and anything else (including no YouTube event at
+  all that poll) leaves it unchanged. Seeded once at service start-up by
+  `snapshotYoutubeActive()` — a `queryUsageStats()`-based point-in-time check — to cover
+  the case where YouTube was already foreground before the service started (a boot, most
+  likely); after that, events are the only thing that moves it. See §4 for why the
+  original design (continuously re-deriving "is it *still* active" from `lastTimeUsed`)
+  broke after a real ~8-minute continuous YouTube session, and why this doesn't.
 
 `updateVisibility()` is the single place both signals converge; it also re-reads the
 enable/disable switch and the rotate interval from `SharedPreferences` on every call, so
@@ -265,8 +271,7 @@ development — documented here so they aren't re-attempted:
 | Approach tried | Why it failed |
 |---|---|
 | `AccessibilityService` to detect any foreground-app change | Binding silently refused by the platform even after full manual user consent via Settings; no error, just never binds. |
-| `UsageStatsManager.queryEvents()` for `MOVE_TO_FOREGROUND`/`ACTIVITY_RESUMED` | Consistently returns **zero** such events for any package, including the caller's own — appears to be deliberately filtered on this OEM build. Other event types (background, foreground-service start/stop) came through fine. |
-| `lastTimeUsed` as a "recency" check (`lastTimeUsed >= now - threshold`) | `lastTimeUsed` is a **discrete timestamp set once per foreground transition**, not a continuously-ticking heartbeat — it can sit frozen for 90+ seconds while the app is genuinely still in the foreground. Fixed by comparing it against the *max* `lastTimeUsed` across all packages instead of against "now". |
+| `lastTimeUsed` as a "recency" check (`lastTimeUsed >= now - threshold`), later "is it the max across all packages" | `lastTimeUsed` is a **discrete timestamp set once per foreground transition**, not a continuously-ticking heartbeat — it can sit frozen for 90+ seconds while the app is genuinely still in the foreground. Comparing against the *max* across all packages instead of against "now" fixed short sessions, but a real ~8-minute continuous YouTube session showed even that breaks eventually: once nothing refreshes YouTube's timestamp for long enough, any other incidental blip on the device becomes the new max and the overlay disappears while YouTube is still genuinely open. Replaced entirely by the event-based approach below — a re-test at the time this was replaced found `queryEvents()` *does* deliver `MOVE_TO_FOREGROUND`/`MOVE_TO_BACKGROUND` reliably on this device (confirmed after a real 5+ and 8+ minute continuous session), contradicting an earlier test result that had found zero such events; that earlier finding was apparently stale or specific to how it queried, not a real platform limitation. |
 | `AudioManager.AudioPlaybackCallback` for "YouTube is active" | Works, but fires for *any* app with active audio/video playback (Netflix, Megogo, ...), not specifically YouTube — dropped per explicit product requirement. |
 | Plain `startService()` / always-visible overlay | `TGuardMemoryManager` kills non-foreground services under memory pressure; `OverlayService` must call `startForeground()`. Even so, `TclAppBoot` has been observed to block `startForeground()` itself ("`default_borbid`") when the calling app loses foreground focus at the exact moment the service starts — a real, occasionally-reproducible race with no known full fix short of root. |
 | Eager `Column` for the 1000+-line dictionary | Composes/measures every row up front regardless of visibility → ANR (`Input dispatching timed out`) on this SoC. Fixed by switching to `LazyColumn`. |
